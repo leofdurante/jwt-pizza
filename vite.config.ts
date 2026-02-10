@@ -27,8 +27,12 @@ function istanbulPlugin({ include = 'src/**/*.ts?(x)', exclude = ['tests/**/*', 
 export default defineConfig(({ mode, command }) => {
   // Enable instrumentation for Playwright and CI, keep prod builds clean.
   const enableCoverage = command === 'serve' || process.env.CI === 'true' || process.env.PLAYWRIGHT_COVERAGE === '1';
+  const repoName = process.env.GITHUB_REPOSITORY?.split('/')?.[1];
+  // GitHub Pages project sites are served from `/<repoName>/`.
+  const base = process.env.GITHUB_ACTIONS === 'true' && repoName ? `/${repoName}/` : '/';
 
   return {
+    base,
     plugins: [
       react(),
       istanbulPlugin({

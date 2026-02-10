@@ -8,7 +8,8 @@ const rootElement = document.getElementById('root');
 if (rootElement) {
   const root = ReactDOM.createRoot(rootElement);
   root.render(
-    <BrowserRouter>
+    // Use Vite's computed base URL so GitHub Pages subpaths like `/jwt-pizza/` work.
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
       <App />
     </BrowserRouter>
   );
