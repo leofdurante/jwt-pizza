@@ -12,7 +12,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: [['list'], ['html', { outputFolder: 'playwright-report' }]],
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: 'http://127.0.0.1:5174',
     trace: 'on-first-retry',
     headless: true,
   },
@@ -25,9 +25,9 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 5173 --strictPort',
-    port: 5173,
-    reuseExistingServer: false,
+    command: 'npm run dev -- --host 127.0.0.1 --port 5174 --strictPort',
+    port: 5174,
+    reuseExistingServer: true,
     timeout: 90_000,
   },
 });

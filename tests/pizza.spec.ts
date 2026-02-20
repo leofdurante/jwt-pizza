@@ -1,165 +1,5 @@
-import { test, expect, Page } from 'playwright-test-coverage';
-
-type RoleName = 'diner' | 'franchisee' | 'admin';
-type UserRole = { role: RoleName; objectId?: string };
-type User = { id: number; name: string; email: string; roles: UserRole[]; password?: string };
-type Pizza = { id: string | number; title: string; image: string; price: number; description: string };
-type Store = { id: string | number; name: string; totalRevenue?: number };
-type Franchise = { id: string | number; name: string; stores: Store[]; admins?: { email: string; id?: string; name?: string }[] };
-
-const users: Record<string, User> = {
-  'd@jwt.com': { id: 3, name: 'Kai Chen', email: 'd@jwt.com', password: 'a', roles: [{ role: 'diner' }] },
-  'f@jwt.com': { id: 7, name: 'Fran Chisee', email: 'f@jwt.com', password: 'franchisee', roles: [{ role: 'franchisee', objectId: '99' }] },
-  'a@jwt.com': { id: 1, name: 'Admin User', email: 'a@jwt.com', password: 'admin', roles: [{ role: 'admin' }] },
-};
-
-const defaultMenu: Pizza[] = [
-  { id: 1, title: 'Veggie', image: 'pizza1.png', price: 0.0038, description: 'A garden of delight' },
-  { id: 2, title: 'Pepperoni', image: 'pizza2.png', price: 0.0042, description: 'Spicy treat' },
-];
-
-const defaultFranchiseList = {
-  franchises: [
-    {
-      id: 2,
-      name: 'LotaPizza',
-      admins: [{ email: 'f@jwt.com', name: 'Fran Chisee' }],
-      stores: [
-        { id: 4, name: 'Lehi', totalRevenue: 123.45 },
-        { id: 5, name: 'Springville', totalRevenue: 67.89 },
-      ],
-    },
-  ] satisfies Franchise[],
-  more: false,
-};
-
-function sanitizeUser(user: User): Omit<User, 'password'> {
-  // The frontend never receives passwords; keep mocked responses realistic.
-  const { password: _password, ...rest } = user;
-  return rest;
-}
-
-async function mockJwtPizzaApi(
-  page: Page,
-  options: {
-    initialUserEmail?: keyof typeof users;
-    menu?: Pizza[];
-    franchiseList?: typeof defaultFranchiseList;
-    franchiseByUser?: Franchise[];
-    orderHistory?: { id: string; dinerId: string; orders: any[] };
-  } = {}
-) {
-  let loggedInUser: Omit<User, 'password'> | null = options.initialUserEmail ? sanitizeUser(users[options.initialUserEmail]) : null;
-
-  if (options.initialUserEmail) {
-    // App uses localStorage token presence to decide whether to call /api/user/me.
-    await page.addInitScript(() => window.localStorage.setItem('token', 'token-for-tests'));
-  }
-
-  await page.route('*/**/api/auth', async (route) => {
-    const method = route.request().method();
-
-    if (method === 'PUT') {
-      const req = route.request().postDataJSON() as { email: string; password: string };
-      const user = users[req.email];
-      if (!user || user.password !== req.password) {
-        await route.fulfill({ status: 401, json: { message: 'Unauthorized' } });
-        return;
-      }
-      loggedInUser = sanitizeUser(user);
-      await route.fulfill({ json: { user: loggedInUser, token: 'abcdef' } });
-      return;
-    }
-
-    if (method === 'POST') {
-      const req = route.request().postDataJSON() as { name: string; email: string; password: string };
-      loggedInUser = { id: 42, name: req.name, email: req.email, roles: [{ role: 'diner' }] };
-      await route.fulfill({ json: { user: loggedInUser, token: 'abcdef' } });
-      return;
-    }
-
-    if (method === 'DELETE') {
-      loggedInUser = null;
-      await route.fulfill({ status: 200, json: { message: 'ok' } });
-      return;
-    }
-
-    await route.fulfill({ status: 405, json: { message: 'Method not allowed' } });
-  });
-
-  await page.route('*/**/api/user/me', async (route) => {
-    expect(route.request().method()).toBe('GET');
-    await route.fulfill({ json: loggedInUser });
-  });
-
-  await page.route('*/**/api/order/menu', async (route) => {
-    expect(route.request().method()).toBe('GET');
-    await route.fulfill({ json: options.menu ?? defaultMenu });
-  });
-
-  await page.route(/\/api\/franchise(\?.*)?$/, async (route) => {
-    expect(route.request().method()).toBe('GET');
-    await route.fulfill({ json: options.franchiseList ?? defaultFranchiseList });
-  });
-
-  await page.route(/\/api\/franchise\/\d+$/, async (route) => {
-    expect(route.request().method()).toBe('GET');
-    await route.fulfill({ json: options.franchiseByUser ?? (options.franchiseList ?? defaultFranchiseList).franchises });
-  });
-
-  await page.route('*/**/api/order', async (route) => {
-    const method = route.request().method();
-
-    if (method === 'GET') {
-      await route.fulfill({
-        json:
-          options.orderHistory ??
-          ({
-            id: 'history-1',
-            dinerId: loggedInUser?.id?.toString?.() ?? '0',
-            orders: [],
-          } as any),
-      });
-      return;
-    }
-
-    if (method === 'POST') {
-      const orderReq = route.request().postDataJSON() as any;
-      await route.fulfill({
-        json: {
-          order: { ...orderReq, id: '23', date: new Date('2026-01-01T00:00:00.000Z').toISOString() },
-          jwt: 'eyJpYXQ',
-        },
-      });
-      return;
-    }
-
-    await route.fulfill({ status: 405, json: { message: 'Method not allowed' } });
-  });
-
-  await page.route('*/**/api/order/verify', async (route) => {
-    expect(route.request().method()).toBe('POST');
-    await route.fulfill({ json: { message: 'valid', payload: { orderId: 23 } } });
-  });
-
-  await page.route('*/**/api/docs', async (route) => {
-    expect(route.request().method()).toBe('GET');
-    await route.fulfill({
-      json: {
-        endpoints: [
-          {
-            requiresAuth: false,
-            method: 'GET',
-            path: '/api/order/menu',
-            description: 'Get menu',
-            example: 'curl /api/order/menu',
-            response: defaultMenu,
-          },
-        ],
-      },
-    });
-  });
-}
+import { test, expect } from 'playwright-test-coverage';
+import { mockJwtPizzaApi } from './testHelpers';
 
 test('home page', async ({ page }) => {
   await mockJwtPizzaApi(page);
@@ -261,7 +101,7 @@ test('admin dashboard renders for admins', async ({ page }) => {
 
   await expect(page.getByText("Mama Ricci's kitchen")).toBeVisible();
   await expect(page.getByText('Franchises')).toBeVisible();
-  await expect(page.locator('table')).toContainText('LotaPizza');
+  await expect(page.locator('table').first()).toContainText('LotaPizza');
 });
 
 test('docs page loads', async ({ page }) => {
@@ -344,8 +184,8 @@ test('admin franchise filter triggers a refresh', async ({ page }) => {
   await page.goto('/admin-dashboard');
 
   await page.getByPlaceholder('Filter franchises').fill('Lota');
-  await page.getByRole('button', { name: 'Submit' }).click();
-  await expect(page.locator('table')).toContainText('LotaPizza');
+  await page.getByPlaceholder('Filter franchises').locator('..').getByRole('button', { name: 'Submit' }).click();
+  await expect(page.locator('table').first()).toContainText('LotaPizza');
 });
 
 test('docs factory route loads', async ({ page }) => {
