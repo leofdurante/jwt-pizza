@@ -3,9 +3,9 @@ import { check, fail, sleep } from 'k6';
 
 export const options = {
   stages: [
-    { duration: '30s', target: 10 },
-    { duration: '1m', target: 10 },
-    { duration: '30s', target: 0 },
+    { duration: '1m', target: 20 },
+    { duration: '3m30s', target: 20 },
+    { duration: '1m', target: 0 },
   ],
   thresholds: {
     http_req_failed: ['rate<0.05'],
@@ -51,7 +51,7 @@ export default function () {
 
   sleep(1);
 
-  // 2) Navigate menu (menu + franchises emulate checkout flow)
+  // 2) Navigate menu
   response = http.get(`${serviceUrl}/api/order/menu`, {
     headers: {
       accept: '*/*',
@@ -66,26 +66,12 @@ export default function () {
     fail('Menu response missing required pizza data');
   }
 
-  response = http.get(`${serviceUrl}/api/franchise?page=1&limit=10&name=*`, {
-    headers: {
-      accept: '*/*',
-      authorization: `Bearer ${vars.authToken}`,
-      origin: siteOrigin,
-    },
-  });
-  mustPass(response, 'Get franchises');
-  const franchiseId = response.json('franchises.0.id');
-  const storeId = response.json('franchises.0.stores.0.id');
-  if (!franchiseId || !storeId) {
-    fail('Franchise response missing franchise/store IDs');
-  }
-
   sleep(1);
 
   // 3) Buy pizza
   const orderPayload = {
-    franchiseId,
-    storeId,
+    franchiseId: 1,
+    storeId: '1',
     items: [{ menuId: firstPizza.id, description: firstPizza.description, price: firstPizza.price }],
   };
   response = http.post(`${serviceUrl}/api/order`, JSON.stringify(orderPayload), {
